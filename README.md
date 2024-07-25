@@ -2,7 +2,18 @@
 ### A fast language that compiles directly to lua with my dream syntax.
 <sub>(Basically MoonScript but my dream syntax, and a bit worse)</sub>
 
-## Features apart from lua:
+## Installation:
+
+It's easy. Download this project as a zip, and extract it in a folder with a lua file in it. In the lua file put this code:
+```lua
+require("prism")
+require("main.psm")
+```
+Then create a file called `main.psm`, and write your prism code in there.
+
+# IMPORTANT: REPORT ANY ISSUES IN ISSUES.
+
+## Docs:
 
 ### Keywords and symbols:
 
