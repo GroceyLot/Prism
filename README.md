@@ -46,7 +46,7 @@ class person(name, age)
 	end
 } end
 
-function person:is_adult!
+ritual person:is_adult!
 	reply person.age >= 18
 end
 ```
