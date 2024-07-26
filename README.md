@@ -71,7 +71,7 @@ Classes can also extend others:
 
 <sub>Notice how the local keyword is after class</sub>
 ```prism
-class local employee(position) extends person
+class local employee(name, age, position) extends person
 {
 	position = position,
 	promote = ritual(self, new_position)
@@ -84,11 +84,9 @@ class local employee(position) extends person
 	end
 } end
 ```
+<sub>Notice how we need to include the name, age but we don't need to reassign in the class declaration</sub>
 
-**Note: Classes don't actually extend metamethods, I just realized. I need to fix it.**
-**Second Note: Constructors include all the fields of the class it extends and the new ones are appended at the end, but I still am yet to add that**
-
-Classes have the methods and properties of the class it extends, unless they are overriden like tostring.
+Classes have the (meta)methods and properties of the class it extends, unless they are overriden like tostring.
 
 ### Extras:
 
