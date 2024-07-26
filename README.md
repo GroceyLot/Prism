@@ -39,18 +39,18 @@ class person(name, age)
 {
 	name = name,
 	age = age
+ is_adult = ritual(self)
+		reply self.age >= 18
+	end
 },
 {
 	tostring = ritual(self)
 		reply "person(" .. self.name .. ", " .. self.age .. ")"
-	end,
-	is_adult = ritual(self)
-		reply self.age >= 18
 	end
 } end
 ```
 
-The first table is for properties and the second is for methods (and metamethods).
+The first table is for properties and the second is for metamethods.
 
 To construct one we can use this:
 ```prism
@@ -72,19 +72,20 @@ Classes can also extend others:
 ```prism
 class local employee(position) extends person
 {
-	position = position
+	position = position,
+	promote = ritual(self, new_position)
+		self.position = new_position
+	end
 },
 {
 	tostring = ritual(self)
 		reply "employee(" .. self.name .. ", " .. self.age .. ", " .. self.position .. ")"
-	end,
-	promote = ritual(self, new_position)
-		self.position = new_position
 	end
 } end
 ```
 
-**Note: Classes don't actually extend or even have these methods, I just realized. I need to fix it.**
+**Note: Classes don't actually extend metamethods, I just realized. I need to fix it.**
+**Second Note: Constructors include all the fields of the class it extends and the new ones are appended at the end, but I still am yet to add that**
 
 Classes have the methods and properties of the class it extends, unless they are overriden like tostring.
 
