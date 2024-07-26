@@ -87,21 +87,21 @@ local function generateCode(debug, node, id, list)
             code = code .. s .. " "
         end
         addCode(className .. ".__index = " .. className)
-        addCode(className .. ".mt = {}")
-        addCode(className .. ".mt.__index = " .. className)
         for i, v in pairs(node.metas.fields) do
             if v.type ~= "FunctionDeclaration" then
                 warn("Non-function meta, skipping")
             else
                 if metamethodProxy[i] then
-                addCode(className .. ".mt.__" .. i .. " = " ..
+                addCode(className .. ".__" .. i .. " = " ..
                             generateCode(debug, v, id))
+                else
+                    warn("Non-function meta, skipping")
                 end
             end
         end
         addCode("function " .. className .. ":new(" .. table.concat(node.constructor, ", ") .. ")")
-        addCode("local obj = {}")
-        addCode("setmetatable(obj, self.mt)")
+        local obj = (node.original and "{}" or "Person.new(self, ".. table.concat(node.constructor, ", ") ..")")
+        addCode("local obj = setmetatable(".. obj ..", " .. className .. ")")
         for i, v in pairs(node.values.fields) do
             addCode("obj[" .. (type(i) ~= "string" and i or ('"' .. i .. '"')) .. "] = " .. generateCode(debug, v, id))
         end
