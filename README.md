@@ -11,7 +11,7 @@ require("main.psm")
 ```
 Then create a file called `main.psm`, and write your prism code in there.
 
-# IMPORTANT: REPORT ANY ISSUES IN ISSUES.
+\***IMPORTANT: REPORT ANY ISSUES IN ISSUES.**\*
 
 ## Docs:
 
