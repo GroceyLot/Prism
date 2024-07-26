@@ -39,15 +39,16 @@ class person(name, age)
 {
 	name = name,
 	age = age
- 	is_adult = ritual(self)
-		reply self.age >= 18
-	end
 },
 {
 	tostring = ritual(self)
 		reply "person(" .. self.name .. ", " .. self.age .. ")"
 	end
 } end
+
+function person:is_adult!
+	reply person.age >= 18
+end
 ```
 
 The first table is for properties and the second is for metamethods.
