@@ -93,9 +93,10 @@ local function generateCode(debug, node, id, list)
             if v.type ~= "FunctionDeclaration" then
                 warn("Non-function meta, skipping")
             else
-                addCode(className .. ".mt." .. (metamethodProxy[i] and "__" or "") .. i .. " = " ..
+                if metamethodProxy[i] then
+                addCode(className .. ".mt.__" .. i .. " = " ..
                             generateCode(debug, v, id))
-
+                end
             end
         end
         addCode("function " .. className .. ":new(" .. table.concat(node.constructor, ", ") .. ")")
