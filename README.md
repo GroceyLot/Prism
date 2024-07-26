@@ -67,6 +67,7 @@ person(Mr Beast, 123)
 ```
 
 Classes can also extend others:
+
 <sub>Notice how the local keyword is after class</sub>
 ```prism
 class local employee(position) extends person
@@ -82,6 +83,8 @@ class local employee(position) extends person
 	end
 } end
 ```
+
+**Note: Classes don't actually extend or even have these methods, I just realized. I need to fix it.**
 
 Classes have the methods and properties of the class it extends, unless they are overriden like tostring.
 
