@@ -39,7 +39,7 @@ class person(name, age)
 {
 	name = name,
 	age = age
- is_adult = ritual(self)
+ 	is_adult = ritual(self)
 		reply self.age >= 18
 	end
 },
