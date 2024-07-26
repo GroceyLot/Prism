@@ -84,7 +84,7 @@ class local employee(name, age, position) extends person
 	end
 } end
 ```
-<sub>Notice how we need to include the name, age but we don't need to reassign in the class declaration</sub>
+<sub>Notice how we need to include the name, age but we don't need to reassign in the class declaration. <br> All the arguments of the constructor of the child class are passed into the parent class in the same order.</sub>
 
 Classes have the (meta)methods and properties of the class it extends, unless they are overriden like tostring.
 
