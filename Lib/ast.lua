@@ -912,7 +912,7 @@ local function parse(tokens)
                 return nil, {
                     type = "unexpected",
                     got = tokens[pos],
-                    line = tokes[pos].line,
+                    line = tokens[pos].line,
                     from = "for in parseStatement"
                 }
             end
@@ -923,7 +923,7 @@ local function parse(tokens)
             repeat
                 local name, err = expect("IDENT")
                 if err then
-                    return _, err
+                    return nil, err
                 end
                 table.insert(vars, name.value)
                 if tokens[pos] and tokens[pos].type == "DELIM" and tokens[pos].value == delimiters[","] then
@@ -939,7 +939,7 @@ local function parse(tokens)
                 repeat
                     local init, err = parseExpression(level)
                     if err then
-                        return _, err
+                        return nil, err
                     end
                     table.insert(inits, init)
                     if tokens[pos] and tokens[pos].type == "DELIM" and tokens[pos].value == delimiters[","] then
