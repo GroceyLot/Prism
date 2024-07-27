@@ -1,27 +1,3 @@
-local function getOgFuncName(node)
-    local curNode = node
-    local name = ""
-    while node.type ~= "Identifier" do
-        if node.type ~= "TableAccess" then
-            if debug then
-                warn("Wrong node type in ogfunc, skipping")
-            end
-        end
-        if node.index.type == "StringLiteral" then
-            name = name .. node.index.value
-        elseif node.index.type == "NumberLiteral" then
-            name = name .. string.fromNumber(node.index.value)
-        else
-            if debug then
-                warn("Unknown node type in table access from ogfunc, skipping")
-            end
-            return ""
-        end
-        node = node.table
-    end
-    return "ogFunc" .. name .. curNode.name
-end
-
 local function simpleHash(str)
     local hash = 0
     for i = 1, #str do
