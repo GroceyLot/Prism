@@ -1,5 +1,13 @@
--- Define keywords and operators at the start
-keywords = {
+--[[
+    Lexer and Parser Module
+    ------------------------
+    This module tokenizes input source code and parses it into an Abstract Syntax Tree (AST).
+    It supports keywords, operators, numbers, strings, table constructors, function calls, etc.
+    Note: The output (AST, tokens, errors) remains unchanged.
+--]]
+
+-- Define language tokens: keywords, operators, specials, string delimiters, and other delimiters.
+local keywords = {
     ["if"] = "if",
     ["then"] = "then",
     ["elseif"] = "elseif",
@@ -20,7 +28,7 @@ keywords = {
     ["extends"] = "extends"
 }
 
-operators = {
+local operators = {
     ["+"] = "+",
     ["-"] = "-",
     ["*"] = "*",
@@ -40,18 +48,18 @@ operators = {
     ["^"] = "^"
 }
 
-specials = {
+local specials = {
     ["="] = "=",
     ["..."] = "..."
 }
 
-strings = {
+local strings = {
     ["`"] = "`",
     ["'"] = "'",
     ['"'] = '"'
 }
 
-delimiters = {
+local delimiters = {
     ["{"] = "{",
     ["}"] = "}",
     ["("] = "(",
@@ -65,520 +73,461 @@ delimiters = {
     ["!"] = "!"
 }
 
-local function tokenize(code)
-    local tokens = {}
-    local currentToken = ""
-    local length = code:len()
-    local i = 1
-    local line = 1
+-- Utility function: Check if a value exists in a table.
+local function tableContains(tbl, value)
+    for _, v in pairs(tbl) do
+        if v == value then
+            return true
+        end
+    end
+    return false
+end
 
-    local function addToken(type, value, line)
+-------------------------------------------------
+-- Tokenizer: Convert source code into tokens --
+-------------------------------------------------
+local function tokenize(sourceCode)
+    local tokens = {}
+    local currentIndex = 1
+    local codeLength = #sourceCode
+    local currentLine = 1
+
+    -- Helper: Append a new token.
+    local function addToken(tokenType, tokenValue, lineNumber)
         table.insert(tokens, {
-            type = type,
-            value = value,
-            line = line
+            type = tokenType,
+            value = tokenValue,
+            line = lineNumber
         })
     end
 
-    local function n()
-        i = i + 1
+    -- Helper: Advance one character.
+    local function advance()
+        currentIndex = currentIndex + 1
     end
 
-    local function peek(n)
-        n = n or 1
-        return code:sub(i + n, i + n)
+    -- Helper: Peek ahead by a given offset (default is 1).
+    local function peek(offset)
+        offset = offset or 1
+        return sourceCode:sub(currentIndex + offset, currentIndex + offset)
     end
 
-    while i <= length do
-        local char = code:sub(i, i)
+    while currentIndex <= codeLength do
+        local char = sourceCode:sub(currentIndex, currentIndex)
 
+        -- Skip whitespace (track newlines)
         if char:match("%s") then
             if char == "\n" then
-                line = line + 1
+                currentLine = currentLine + 1
             end
-            n()
+            advance()
+
+        -- Handle keyword setting syntax: @<keyword>=<value>@
         elseif char == "@" then
-            n()
-            local keyword = ""
+            advance()
+            local keywordStr = ""
             local iter = 0
             repeat
-                keyword = keyword .. code:sub(i, i)
-                n()
+                keywordStr = keywordStr .. sourceCode:sub(currentIndex, currentIndex)
+                advance()
                 iter = iter + 1
-            until code:sub(i, i) == "=" or iter > 20
-            if code:sub(i, i) == "=" and keywords[keyword] then
-                n()
-                local set = ""
+            until sourceCode:sub(currentIndex, currentIndex) == "=" or iter > 20
+            if sourceCode:sub(currentIndex, currentIndex) == "=" and keywords[keywordStr] then
+                advance()  -- skip "="
+                local setValue = ""
+                iter = 0
                 repeat
-                    set = set .. code:sub(i, i)
-                    n()
+                    setValue = setValue .. sourceCode:sub(currentIndex, currentIndex)
+                    advance()
                     iter = iter + 1
-                until code:sub(i, i) == "@" or iter > 20
-                if code:sub(i, i) == "@" then
-                    keywords[keyword] = set
-                    n()
+                until sourceCode:sub(currentIndex, currentIndex) == "@" or iter > 20
+                if sourceCode:sub(currentIndex, currentIndex) == "@" then
+                    keywords[keywordStr] = setValue
+                    advance()  -- skip closing "@"
                 else
                     error("Error tokenizing: keyword set trailing")
                 end
             else
                 error("Error tokenizing: keyword set")
             end
-        elseif code:sub(i, i + 1) == "--" then
-            n()
+
+        -- Handle comments starting with "--"
+        elseif sourceCode:sub(currentIndex, currentIndex+1) == "--" then
+            advance()
             if peek() == "[" then
-                n()
-                n()
-                while i <= length and code:sub(i, i) ~= "]" do
-                    if code:sub(i, i) == "\n" then
-                        line = line + 1
+                advance()  -- skip "["
+                advance()  -- skip marker character
+                while currentIndex <= codeLength and sourceCode:sub(currentIndex, currentIndex) ~= "]" do
+                    if sourceCode:sub(currentIndex, currentIndex) == "\n" then
+                        currentLine = currentLine + 1
                     end
-                    n()
+                    advance()
                 end
-                n()
-                n()
+                advance()
+                advance()
             else
-                while i <= length and code:sub(i, i) ~= "\n" do
-                    n()
+                while currentIndex <= codeLength and sourceCode:sub(currentIndex, currentIndex) ~= "\n" do
+                    advance()
                 end
-                line = line + 1
-                n()
+                currentLine = currentLine + 1
+                advance()
             end
-        elseif code:sub(i, i + 2) == specials["..."] then
-            addToken("IDENT", "...", line)
-            n()
-            n()
-            n()
-        elseif char:match("%d") or (char == "-" and i + 1 <= length and code:sub(i + 1, i + 1):match("%d")) then
-            currentToken = char
-            n()
-            while i <= length and code:sub(i, i):match("%d") do
-                currentToken = currentToken .. code:sub(i, i)
-                n()
+
+        -- Handle the "..." special token
+        elseif sourceCode:sub(currentIndex, currentIndex+2) == specials["..."] then
+            addToken("IDENT", "...", currentLine)
+            advance() advance() advance()
+
+        -- Handle numeric literals (integers and floats)
+        elseif char:match("%d") or (char == "-" and currentIndex + 1 <= codeLength and sourceCode:sub(currentIndex+1, currentIndex+1):match("%d")) then
+            local numberStr = char
+            advance()
+            while currentIndex <= codeLength and sourceCode:sub(currentIndex, currentIndex):match("%d") do
+                numberStr = numberStr .. sourceCode:sub(currentIndex, currentIndex)
+                advance()
             end
-            if i <= length and code:sub(i, i) == "." then
-                currentToken = currentToken .. "."
-                n()
-                while i <= length and code:sub(i, i):match("%d") do
-                    currentToken = currentToken .. code:sub(i, i)
-                    n()
+            if currentIndex <= codeLength and sourceCode:sub(currentIndex, currentIndex) == "." then
+                numberStr = numberStr .. "."
+                advance()
+                while currentIndex <= codeLength and sourceCode:sub(currentIndex, currentIndex):match("%d") do
+                    numberStr = numberStr .. sourceCode:sub(currentIndex, currentIndex)
+                    advance()
                 end
             end
-            addToken("NUMBER", tonumber(currentToken), line)
+            addToken("NUMBER", tonumber(numberStr), currentLine)
+
+        -- Skip semicolons completely
         elseif char == ";" then
-            n()
-        elseif table.find(strings, char) then
+            advance()
+
+        -- Handle string literals delimited by `, ', or "
+        elseif tableContains(strings, char) then
             local quoteType = char
-            currentToken = ""
-            n()
-            while i <= length and code:sub(i, i) ~= quoteType do
-                currentToken = currentToken .. code:sub(i, i)
-                if code:sub(i, i) == "\n" then
-                    line = line + 1
+            local stringContent = ""
+            advance()
+            while currentIndex <= codeLength and sourceCode:sub(currentIndex, currentIndex) ~= quoteType do
+                stringContent = stringContent .. sourceCode:sub(currentIndex, currentIndex)
+                if sourceCode:sub(currentIndex, currentIndex) == "\n" then
+                    currentLine = currentLine + 1
                 end
-                n()
+                advance()
             end
-            n()
-            addToken("STRING", currentToken, line)
+            advance()  -- skip closing quote
+            addToken("STRING", stringContent, currentLine)
+
+        -- Handle identifiers and keywords
         elseif char:match("[A-Za-z_]") then
-            currentToken = char
-            n()
-            while i <= length and code:sub(i, i):match("[%w_]") do
-                currentToken = currentToken .. code:sub(i, i)
-                n()
+            local identifierStr = char
+            advance()
+            while currentIndex <= codeLength and sourceCode:sub(currentIndex, currentIndex):match("[%w_]") do
+                identifierStr = identifierStr .. sourceCode:sub(currentIndex, currentIndex)
+                advance()
             end
-            if table.find(keywords, currentToken) then
-                addToken("KEYWORD", currentToken, line)
+            if tableContains(keywords, identifierStr) then
+                addToken("KEYWORD", identifierStr, currentLine)
             else
-                addToken("IDENT", currentToken, line)
+                addToken("IDENT", identifierStr, currentLine)
             end
-        elseif table.find(operators, char .. peek()) then
+
+        -- Handle two-character operators (e.g. "==", "<=")
+        elseif tableContains(operators, char .. peek()) then
             local op = char .. peek()
-            n()
-            n()
-            addToken("OP", op, line)
-        elseif table.find(operators, char) then
+            advance() advance()
+            addToken("OP", op, currentLine)
+
+        -- Handle single-character operators
+        elseif tableContains(operators, char) then
             local op = char
-            n()
-            addToken("OP", op, line)
-        elseif table.find(specials, char) then
-            addToken("SPECIAL", char, line)
-            n()
-        elseif table.find(delimiters, char) then
-            addToken("DELIM", char, line)
-            n()
+            advance()
+            addToken("OP", op, currentLine)
+
+        -- Handle specials (like "=")
+        elseif tableContains(specials, char) then
+            addToken("SPECIAL", char, currentLine)
+            advance()
+
+        -- Handle delimiters (parentheses, brackets, etc.)
+        elseif tableContains(delimiters, char) then
+            addToken("DELIM", char, currentLine)
+            advance()
+
+        -- Log and skip any unexpected characters
         else
-            print("Unexpected character at line " .. line .. ": " .. char .. " skipping . . .")
-            n()
+            print("Unexpected character at line " .. currentLine .. ": " .. char .. " skipping ...")
+            advance()
         end
     end
 
     return tokens
 end
 
+-------------------------------------------------
+-- Parser: Convert tokens into an AST structure --
+-------------------------------------------------
 local function parse(tokens)
-    local pos = 1
-    local length = #tokens
+    local currentPosition = 1
+    local tokensLength = #tokens
 
-    local function peek(n)
-        n = n or 0
-        return tokens[pos + n]
+    -- Helper: Peek at the current token (with optional offset).
+    local function peek(offset)
+        offset = offset or 0
+        return tokens[currentPosition + offset]
     end
 
+    -- Helper: Move to the next token.
     local function nextToken()
-        pos = pos + 1
+        currentPosition = currentPosition + 1
     end
 
-    local list = {
+    -- Mapping for token type checks (keywords, operators, etc.).
+    local tokenCategories = {
         ["KEYWORD"] = keywords,
         ["OP"] = operators,
         ["SPECIAL"] = specials,
         ["DELIM"] = delimiters
     }
 
-    local function expect(type, value)
-        local token = tokens[pos]
-        value = value or tokens[pos].value
-        if list[type] then
-            value = list[type][value]
+    -- Expect a token of a specific type (and optionally a specific value).
+    local function expect(expectedType, expectedValue)
+        local token = tokens[currentPosition]
+        expectedValue = expectedValue or token.value
+        if tokenCategories[expectedType] then
+            expectedValue = tokenCategories[expectedType][expectedValue]
         end
-        if not token or token.type ~= type or (value and token.value ~= value) then
+        if not token or token.type ~= expectedType or (expectedValue and token.value ~= expectedValue) then
             return nil, {
                 type = "expect",
                 expect = {
-                    type = type,
-                    value = value
+                    type = expectedType,
+                    value = expectedValue
                 },
-                got = {token},
-                line = token.line
+                got = { token },
+                line = token and token.line or "unknown"
             }
         end
         nextToken()
         return token
     end
 
-    local parseFunctionCall
-    local parseExpression
-    local parseBlock
-    local parsePrimary
-    local parseBinaryExpression
-    local parseStatement
+    -- Forward declarations for recursive parsing functions.
+    local parseFunctionCall, parseExpression, parseBlock, parsePrimary, parseBinaryExpression, parseStatement
 
-    parsePrimary = function(level)
-        local token = tokens[pos]
+    -----------------------------
+    -- Primary Expression Parser
+    -----------------------------
+    parsePrimary = function(nestingLevel)
+        local token = tokens[currentPosition]
         if token.type == "NUMBER" then
             nextToken()
-            local node = {
-                type = "NumberLiteral",
-                value = token.value
-            }
-            return node
+            return { type = "NumberLiteral", value = token.value }
         elseif token.type == "STRING" then
             nextToken()
-            local node = {
-                type = "StringLiteral",
-                value = token.value
-            }
-            return node
+            return { type = "StringLiteral", value = token.value }
         elseif token.type == "IDENT" then
-            local name = token.value
+            local identifierName = token.value
             nextToken()
-            local node = {
-                type = "Identifier",
-                name = name
-            }
+            local node = { type = "Identifier", name = identifierName }
 
-            -- Handle nested table access with brackets and dots
-            while tokens[pos] and tokens[pos].type == "DELIM" and
-                (tokens[pos].value == delimiters["["] or tokens[pos].value == delimiters["."] or tokens[pos].value ==
-                    delimiters["@"]) do
-                if tokens[pos].value == delimiters["["] then
+            -- Support nested table accesses (using [ ] or .)
+            while tokens[currentPosition] and tokens[currentPosition].type == "DELIM" and
+                  (tokens[currentPosition].value == delimiters["["] or tokens[currentPosition].value == delimiters["."] or tokens[currentPosition].value == delimiters["@"]) do
+                if tokens[currentPosition].value == delimiters["["] then
                     nextToken()
-                    local index, err = parseExpression(level)
-                    if err then
-                        return nil, err
-                    end
-                    local _, err = expect("DELIM", "]")
-                    if err then
-                        return nil, err
-                    end
+                    local indexExpr, err = parseExpression(nestingLevel)
+                    if err then return nil, err end
+                    local _, err2 = expect("DELIM", "]")
+                    if err2 then return nil, err2 end
+                    node = { type = "TableAccess", table = node, index = indexExpr }
+                elseif tokens[currentPosition].value == delimiters["."] then
+                    nextToken()
+                    local indexToken, err = expect("IDENT")
+                    if err then return nil, err end
                     node = {
                         type = "TableAccess",
                         table = node,
-                        index = index
-                    }
-                elseif tokens[pos].value == delimiters["."] then
-                    nextToken()
-                    local index, err = expect("IDENT")
-                    if err then
-                        return nil, err
-                    end
-                    node = {
-                        type = "TableAccess",
-                        table = node,
-                        index = {
-                            type = "StringLiteral",
-                            value = index.value
-                        }
+                        index = { type = "StringLiteral", value = indexToken.value }
                     }
                 end
             end
 
-            -- Handle function calls
-            if tokens[pos] and tokens[pos].type == "DELIM" and
-                (tokens[pos].value == delimiters["("] or tokens[pos].value == delimiters[":"] or tokens[pos].value ==
-                    delimiters["!"]) then
-                return parseFunctionCall(node, level)
+            -- Handle function call immediately following the identifier
+            if tokens[currentPosition] and tokens[currentPosition].type == "DELIM" and
+               (tokens[currentPosition].value == delimiters["("] or tokens[currentPosition].value == delimiters[":"] or tokens[currentPosition].value == delimiters["!"]) then
+                return parseFunctionCall(node, nestingLevel)
             end
 
             return node
 
         elseif token.type == "KEYWORD" and token.value == keywords["true"] then
             nextToken()
-            local node = {
-                type = "BooleanLiteral",
-                value = true
-            }
-            return node
+            return { type = "BooleanLiteral", value = true }
         elseif token.type == "KEYWORD" and token.value == keywords["false"] then
             nextToken()
-            local node = {
-                type = "BooleanLiteral",
-                value = false
-            }
-            return node
+            return { type = "BooleanLiteral", value = false }
         elseif token.type == "KEYWORD" and token.value == keywords["nil"] then
             nextToken()
-            local node = {
-                type = "NilLiteral"
-            }
-            return node
+            return { type = "NilLiteral" }
         elseif token.type == "KEYWORD" and token.value == keywords["ritual"] then
             nextToken()
             local parameters = {}
-            if tokens[pos].type == "DELIM" and tokens[pos].value == delimiters["!"] then
+            if tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters["!"] then
                 local _, err = expect("DELIM", "!")
-                if err then
-                    return nil, err
-                end
+                if err then return nil, err end
             else
                 local _, err = expect("DELIM", "(")
-                if err then
-                    return nil, err
-                end
-                if tokens[pos] and tokens[pos].type ~= "DELIM" and tokens[pos].value ~= delimiters[")"] then
+                if err then return nil, err end
+                if tokens[currentPosition] and not (tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[")"]) then
                     repeat
-                        local param, err = expect("IDENT")
-                        if err then
-                            return nil, err
-                        end
-                        table.insert(parameters, param.value)
-                        if tokens[pos].type == "DELIM" and tokens[pos].value == delimiters[","] then
+                        local paramToken, err = expect("IDENT")
+                        if err then return nil, err end
+                        table.insert(parameters, paramToken.value)
+                        if tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[","] then
                             nextToken()
                         end
-                    until tokens[pos].type == "DELIM" and tokens[pos].value == delimiters[")"]
+                    until tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[")"]
                 end
                 local _, err = expect("DELIM", ")")
-                if err then
-                    return nil, err
-                end
+                if err then return nil, err end
             end
-            local body, err = parseBlock(level)
-            if err then
-                return nil, err
-            end
-            local _, err = expect("KEYWORD", "end")
-            if err then
-                return nil, err
-            end
-            local node = {
+            local bodyNode, err = parseBlock(nestingLevel)
+            if err then return nil, err end
+            local _, err2 = expect("KEYWORD", "end")
+            if err2 then return nil, err2 end
+            return {
                 type = "FunctionDeclaration",
                 parameters = parameters,
-                body = body
+                body = bodyNode
             }
-            return node
 
         elseif token.type == "DELIM" and token.value == delimiters["{"] then
             nextToken()
             local fields = {}
             local isArray = nil
-            local index = 1
+            local arrayIndex = 1
 
             local function parseKeyValuePair()
                 local key, value, err
-                if tokens[pos].type == "IDENT" then
-                    key = tokens[pos].value
+                if tokens[currentPosition].type == "IDENT" then
+                    key = tokens[currentPosition].value
                     nextToken()
-                    if tokens[pos].value == specials["="] then
+                    if tokens[currentPosition].value == specials["="] then
                         isArray = false
                         nextToken()
-                        value, err = parseExpression(level)
-                        if err then
-                            return nil, err
-                        end
+                        value, err = parseExpression(nestingLevel)
+                        if err then return nil, err end
                     elseif isArray == nil or isArray then
                         isArray = true
-                        key = index
-                        index = index + 1
-                        value, err = parseExpression(level)
-                        if err then
-                            return nil, err
-                        end
+                        key = arrayIndex
+                        arrayIndex = arrayIndex + 1
+                        value, err = parseExpression(nestingLevel)
+                        if err then return nil, err end
                     else
-                        return nil, {
-                            type = "specific",
-                            line = tokens[pos].line,
-                            string = "Dynamic arrays are not allowed."
-                        }
+                        return nil, { type = "specific", line = tokens[currentPosition].line, string = "Dynamic arrays are not allowed." }
                     end
-                elseif tokens[pos].type == "DELIM" and tokens[pos].value == delimiters["["] then
+                elseif tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters["["] then
                     isArray = false
                     nextToken()
-                    key, err = parseExpression(level)
-                    if err then
-                        return nil, err
-                    end
+                    key, err = parseExpression(nestingLevel)
+                    if err then return nil, err end
                     err = expect("DELIM", "]")
-                    if err then
-                        return nil, err
-                    end
+                    if err then return nil, err end
                     err = expect("SPECIAL", "=")
-                    if err then
-                        return nil, err
-                    end
-                    value, err = parseExpression(level)
-                    if err then
-                        return nil, err
-                    end
+                    if err then return nil, err end
+                    value, err = parseExpression(nestingLevel)
+                    if err then return nil, err end
                 elseif isArray == nil or isArray then
                     isArray = true
-                    key = index
-                    index = index + 1
-                    value, err = parseExpression(level)
-                    if err then
-                        return nil, err
-                    end
+                    key = arrayIndex
+                    arrayIndex = arrayIndex + 1
+                    value, err = parseExpression(nestingLevel)
+                    if err then return nil, err end
                 else
-                    return nil, {
-                        type = "specific",
-                        line = tokens[pos].line,
-                        string = "Dynamic arrays are not allowed."
-                    }
+                    return nil, { type = "specific", line = tokens[currentPosition].line, string = "Dynamic arrays are not allowed." }
                 end
-
                 return key, value
             end
 
-            while tokens[pos] and tokens[pos].type ~= "DELIM" or tokens[pos].value ~= delimiters["}"] do
+            while tokens[currentPosition] and not (tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters["}"]) do
                 local key, value, err = parseKeyValuePair()
-                if err then
-                    return nil, err
-                end
+                if err then return nil, err end
                 fields[key] = value
 
-                if tokens[pos] and tokens[pos].type == "DELIM" and tokens[pos].value == delimiters[","] then
+                if tokens[currentPosition] and tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[","] then
                     nextToken()
-                elseif tokens[pos] and tokens[pos].type == "DELIM" and tokens[pos].value == delimiters["}"] then
+                elseif tokens[currentPosition] and tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters["}"] then
                     break
                 end
             end
 
-            if not isArray then
-                isArray = false
-            end
+            if not isArray then isArray = false end
 
             local _, err = expect("DELIM", "}")
-            if err then
-                return nil, err
-            end
+            if err then return nil, err end
 
-            local node = {
+            return {
                 type = "TableConstructor",
                 fields = fields,
                 isArray = isArray
             }
-            return node
 
         elseif token.type == "DELIM" and token.value == delimiters["("] then
             nextToken()
-            local expr, err = parseExpression(level)
-            if err then
-                return nil, err
-            end
-            local _, err = expect("DELIM", ")")
-            if err then
-                return nil, err
-            end
+            local expr, err = parseExpression(nestingLevel)
+            if err then return nil, err end
+            local _, err2 = expect("DELIM", ")")
+            if err2 then return nil, err2 end
             return expr
+
         else
-            return nil, {
-                type = "unexpected",
-                got = token,
-                line = token.line,
-                from = "parsePrimary"
-            }
+            return nil, { type = "unexpected", got = token, line = token.line, from = "parsePrimary" }
         end
     end
 
-    parseFunctionCall = function(node, level)
+    -----------------------------
+    -- Function Call Parser
+    -----------------------------
+    parseFunctionCall = function(calleeNode, nestingLevel)
         local isMethod = false
-        if tokens[pos] and tokens[pos].type == "DELIM" and tokens[pos].value == delimiters[":"] then
+        if tokens[currentPosition] and tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[":"] then
             isMethod = true
             nextToken()
-            local value = tokens[pos].value
+            local methodName = tokens[currentPosition].value
             local _, err = expect("IDENT")
-            if err then
-                return nil, err
-            end
-            node = {
+            if err then return nil, err end
+            calleeNode = {
                 type = "TableAccess",
-                table = node,
-                index = {
-                    type = "StringLiteral",
-                    value = value
-                }
+                table = calleeNode,
+                index = { type = "StringLiteral", value = methodName }
             }
         end
 
-        if tokens[pos] and tokens[pos].type == "DELIM" and tokens[pos].value == delimiters["!"] then
+        if tokens[currentPosition] and tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters["!"] then
             local _, err = expect("DELIM", "!")
-            if err then
-                return nil, err
-            end
-
+            if err then return nil, err end
             return {
                 type = "FunctionCall",
-                name = node,
+                name = calleeNode,
                 isMethod = isMethod,
                 arguments = {}
             }
         end
 
         local _, err = expect("DELIM", "(")
-        if err then
-            return nil, err
-        end
+        if err then return nil, err end
 
-        local args = {}
-        if tokens[pos] and (tokens[pos].type ~= "DELIM" or tokens[pos].value ~= delimiters[")"]) then
+        local arguments = {}
+        if tokens[currentPosition] and not (tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[")"]) then
             repeat
-                local expr, err = parseExpression(level)
-                if err then
-                    return nil, err
-                end
-                table.insert(args, expr)
-
-                if tokens[pos] and tokens[pos].type == "DELIM" then
-                    if tokens[pos].value == delimiters[")"] then
+                local argExpr, err = parseExpression(nestingLevel)
+                if err then return nil, err end
+                table.insert(arguments, argExpr)
+                if tokens[currentPosition] and tokens[currentPosition].type == "DELIM" then
+                    if tokens[currentPosition].value == delimiters[")"] then
                         break
-                    elseif tokens[pos].value == delimiters[","] then
+                    elseif tokens[currentPosition].value == delimiters[","] then
                         nextToken()
                     else
-                        return nil, {
-                            type = "unexpected",
-                            got = tokens[pos],
-                            line = tokens[pos].line,
-                            from = "parseFunctionCall"
-                        }
+                        return nil, { type = "unexpected", got = tokens[currentPosition], line = tokens[currentPosition].line, from = "parseFunctionCall" }
                     end
                 else
                     local _, err = expect("DELIM")
@@ -587,22 +536,21 @@ local function parse(tokens)
             until false
         end
 
-        local _, err = expect("DELIM", ")")
-        if err then
-            return nil, err
-        end
+        local _, err2 = expect("DELIM", ")")
+        if err2 then return nil, err2 end
 
-        local functionCallNode = {
+        return {
             type = "FunctionCall",
-            name = node,
+            name = calleeNode,
             isMethod = isMethod,
-            arguments = args
+            arguments = arguments
         }
-
-        return functionCallNode
     end
 
-    parseBinaryExpression = function(left, minPrecedence, level)
+    -----------------------------
+    -- Binary Expression Parser
+    -----------------------------
+    parseBinaryExpression = function(leftExpr, minPrecedence, nestingLevel)
         local precedence = {
             ["|"] = 1,
             ["&"] = 2,
@@ -628,321 +576,243 @@ local function parse(tokens)
         end
 
         while true do
-            local token = tokens[pos]
+            local token = tokens[currentPosition]
             if not token or token.type ~= "OP" or getPrecedence(operators[token.value]) < minPrecedence then
-                return left
+                return leftExpr
             end
 
-            local op = operators[token.value]
+            local operatorValue = operators[token.value]
             nextToken()
 
-            local right, err = parsePrimary(level)
-            if err then
-                return nil, err
-            end
+            local rightExpr, err = parsePrimary(nestingLevel)
+            if err then return nil, err end
             while true do
-                local token = tokens[pos]
-                if not token or token.type ~= "OP" or getPrecedence(operators[token.value]) <= getPrecedence(op) then
+                local nextTokenData = tokens[currentPosition]
+                if not nextTokenData or nextTokenData.type ~= "OP" or getPrecedence(operators[nextTokenData.value]) <= getPrecedence(operatorValue) then
                     break
                 end
-                right, err = parseBinaryExpression(right, getPrecedence(operators[token.value]), level)
-                if err then
-                    return nil, err
-                end
+                rightExpr, err = parseBinaryExpression(rightExpr, getPrecedence(operators[nextTokenData.value]), nestingLevel)
+                if err then return nil, err end
             end
 
-            left = {
+            leftExpr = {
                 type = "BinaryExpression",
-                operator = op,
-                left = left,
-                right = right
+                operator = operatorValue,
+                left = leftExpr,
+                right = rightExpr
             }
         end
     end
 
-    parseExpression = function(level)
-        local expr, err = parseBinaryExpression(parsePrimary(level), 0, level)
-        return expr, err
+    -----------------------------
+    -- Expression Parser
+    -----------------------------
+    parseExpression = function(nestingLevel)
+        local primaryExpr, err = parsePrimary(nestingLevel)
+        if err then return nil, err end
+        return parseBinaryExpression(primaryExpr, 0, nestingLevel)
     end
 
-    parseStatement = function(level)
-        local token = tokens[pos]
+    -----------------------------
+    -- Statement Parser
+    -----------------------------
+    parseStatement = function(nestingLevel)
+        local token = tokens[currentPosition]
 
         if token.type == "KEYWORD" and token.value == keywords["if"] then
             nextToken()
-            local test, err = parseExpression(level)
-            if err then
-                return nil, err
-            end
-            local _, err = expect("KEYWORD", "then")
-            if err then
-                return nil, err
-            end
-            local consequent, err = parseBlock(level)
-            if err then
-                return nil, err
-            end
+            local testExpr, err = parseExpression(nestingLevel)
+            if err then return nil, err end
+            local _, err2 = expect("KEYWORD", "then")
+            if err2 then return nil, err2 end
+            local consequentBlock, err3 = parseBlock(nestingLevel)
+            if err3 then return nil, err3 end
 
-            local node = {
+            local ifNode = {
                 type = "IfStatement",
-                test = test,
-                consequent = consequent,
+                test = testExpr,
+                consequent = consequentBlock,
                 alternate = nil
             }
 
-            local current = node
-            while tokens[pos] and tokens[pos].type == "KEYWORD" do
-                if tokens[pos].value == keywords["elseif"] then
+            local currentIf = ifNode
+            while tokens[currentPosition] and tokens[currentPosition].type == "KEYWORD" do
+                if tokens[currentPosition].value == keywords["elseif"] then
                     nextToken()
-                    local elseifTest, err = parseExpression(level)
-                    if err then
-                        return nil, err
-                    end
+                    local elseifTest, err = parseExpression(nestingLevel)
+                    if err then return nil, err end
                     local _, err = expect("KEYWORD", "then")
-                    if err then
-                        return nil, err
-                    end
-                    local elseifConsequent, err = parseBlock(level)
-                    if err then
-                        return nil, err
-                    end
+                    if err then return nil, err end
+                    local elseifBlock, err = parseBlock(nestingLevel)
+                    if err then return nil, err end
                     local elseifNode = {
                         type = "IfStatement",
                         test = elseifTest,
-                        consequent = elseifConsequent,
+                        consequent = elseifBlock,
                         alternate = nil
                     }
-                    current.alternate = elseifNode
-                    current = elseifNode
-                elseif tokens[pos].value == keywords["else"] then
+                    currentIf.alternate = elseifNode
+                    currentIf = elseifNode
+                elseif tokens[currentPosition].value == keywords["else"] then
                     nextToken()
-                    local alternate, err = parseBlock(level)
-                    if err then
-                        return nil, err
-                    end
-                    current.alternate = alternate
+                    local elseBlock, err = parseBlock(nestingLevel)
+                    if err then return nil, err end
+                    currentIf.alternate = elseBlock
                     break
                 else
                     break
                 end
             end
 
-            local _, err = expect("KEYWORD", "end")
-            if err then
-                return nil, err
-            end
+            local _, errFinal = expect("KEYWORD", "end")
+            if errFinal then return nil, errFinal end
+            return ifNode
 
-            return node
         elseif token.type == "KEYWORD" and token.value == keywords["while"] then
             nextToken()
-            local test, err = parseExpression(level)
-            if err then
-                return nil, err
-            end
-            local _, err = expect("KEYWORD", "do")
-            if err then
-                return nil, err
-            end
-            local body, err = parseBlock(level)
-            if err then
-                return nil, err
-            end
-            local _, err = expect("KEYWORD", "end")
-            if err then
-                return nil, err
-            end
-            local node = {
-                type = "WhileStatement",
-                test = test,
-                body = body
-            }
+            local testExpr, err = parseExpression(nestingLevel)
+            if err then return nil, err end
+            local _, err2 = expect("KEYWORD", "do")
+            if err2 then return nil, err2 end
+            local bodyBlock, err = parseBlock(nestingLevel)
+            if err then return nil, err end
+            local _, err3 = expect("KEYWORD", "end")
+            if err3 then return nil, err3 end
+            return { type = "WhileStatement", test = testExpr, body = bodyBlock }
 
-            return node
-        elseif tokens[pos] and tokens[pos].type == "KEYWORD" and tokens[pos].value == keywords["skip"] then
-            local node = {
-                type = "LoopSkipStatement"
-            }
+        elseif tokens[currentPosition] and tokens[currentPosition].type == "KEYWORD" and tokens[currentPosition].value == keywords["skip"] then
             nextToken()
-            return node
-        elseif tokens[pos] and tokens[pos].type == "KEYWORD" and tokens[pos].value == keywords["class"] then
+            return { type = "LoopSkipStatement" }
+
+        elseif tokens[currentPosition] and tokens[currentPosition].type == "KEYWORD" and tokens[currentPosition].value == keywords["class"] then
             nextToken()
             local isLocal = false
-            if tokens[pos].type == "KEYWORD" and tokens[pos].value == keywords["local"] then
+            if tokens[currentPosition].type == "KEYWORD" and tokens[currentPosition].value == keywords["local"] then
                 isLocal = true
                 nextToken()
             end
-            local name, err = expect("IDENT")
-            if err then
-                return nil, err
-            end
+            local nameToken, err = expect("IDENT")
+            if err then return nil, err end
             local _, err = expect("DELIM", "(")
-            if err then
-                return nil, err
-            end
+            if err then return nil, err end
             local parameters = {}
-            if tokens[pos] and tokens[pos].type ~= "DELIM" and tokens[pos].value ~= delimiters[")"] then
+            if tokens[currentPosition] and not (tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[")"]) then
                 repeat
-                    local param, err = expect("IDENT")
-                    if err then
-                        return nil, err
-                    end
-                    table.insert(parameters, param.value)
-                    if tokens[pos].type == "DELIM" and tokens[pos].value == delimiters[","] then
+                    local paramToken, err = expect("IDENT")
+                    if err then return nil, err end
+                    table.insert(parameters, paramToken.value)
+                    if tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[","] then
                         nextToken()
+                    else
+                        break
                     end
-                until tokens[pos].type == "DELIM" and tokens[pos].value == delimiters[")"]
+                until tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[")"]
             end
             local _, err = expect("DELIM", ")")
-            if err then
-                return nil, err
-            end
+            if err then return nil, err end
             local extends = nil
             local original = true
-            if tokens[pos].type == "KEYWORD" and tokens[pos].value == keywords["extends"] then
+            if tokens[currentPosition].type == "KEYWORD" and tokens[currentPosition].value == keywords["extends"] then
                 local _, err = expect("KEYWORD", "extends")
-                if err then
-                    return nil, err
-                end
-                extends = tokens[pos]
+                if err then return nil, err end
+                extends = tokens[currentPosition]
                 local _, err = expect("IDENT")
-                if err then
-                    return nil, err
-                end
+                if err then return nil, err end
                 original = false
             end
-            local values = parseExpression(level)
+            local valuesExpr = parseExpression(nestingLevel)
             local _, err = expect("DELIM", ",")
-            if err then
-                return nil, err
-            end
-            local metas = parseExpression(level)
-            local _, err = expect("KEYWORD", "end")
-            if err then
-                return nil, err
-            end
-            local node = {
+            if err then return nil, err end
+            local metasExpr = parseExpression(nestingLevel)
+            local _, err2 = expect("KEYWORD", "end")
+            if err2 then return nil, err2 end
+            return {
                 type = "ClassDeclaration",
-                name = name.value,
-                values = values,
+                name = nameToken.value,
+                values = valuesExpr,
                 isLocal = isLocal,
                 constructor = parameters,
                 extends = extends,
-                metas = metas,
+                metas = metasExpr,
                 original = original
             }
-            return node
+
         elseif token.type == "KEYWORD" and token.value == keywords["for"] then
             nextToken()
-            local var = expect("IDENT").value
-            if tokens[pos] and tokens[pos].type == "SPECIAL" and tokens[pos].value == specials["="] then
+            local varName = expect("IDENT").value
+            if tokens[currentPosition] and tokens[currentPosition].type == "SPECIAL" and tokens[currentPosition].value == specials["="] then
                 nextToken()
-                local start, err = parseExpression(level)
-                if err then
-                    return nil, err
-                end
+                local startExpr, err = parseExpression(nestingLevel)
+                if err then return nil, err end
                 local _, err = expect("DELIM", ",")
-                if err then
-                    return nil, err
-                end
-                local finish, err = parseExpression(level)
-                if err then
-                    return nil, err
-                end
-                local step
-                if tokens[pos] and tokens[pos].type == "DELIM" and tokens[pos].value == delimiters[","] then
+                if err then return nil, err end
+                local finishExpr, err = parseExpression(nestingLevel)
+                if err then return nil, err end
+                local stepExpr = nil
+                if tokens[currentPosition] and tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[","] then
                     nextToken()
-                    step, err = parseExpression(level)
-                    if err then
-                        return nil, err
-                    end
+                    stepExpr, err = parseExpression(nestingLevel)
+                    if err then return nil, err end
                 end
                 local _, err = expect("KEYWORD", "do")
-                if err then
-                    return nil, err
-                end
-                local body, err = parseBlock(level)
-                if err then
-                    return nil, err
-                end
-                local _, err = expect("KEYWORD", "end")
-                if err then
-                    return nil, err
-                end
-                local node = {
+                if err then return nil, err end
+                local bodyBlock, err = parseBlock(nestingLevel)
+                if err then return nil, err end
+                local _, err2 = expect("KEYWORD", "end")
+                if err2 then return nil, err2 end
+                return {
                     type = "ForNumericStatement",
-                    var = var,
-                    start = start,
-                    finish = finish,
-                    step = step,
-                    body = body
+                    var = varName,
+                    start = startExpr,
+                    finish = finishExpr,
+                    step = stepExpr,
+                    body = bodyBlock
                 }
-
-                return node
-            elseif tokens[pos] and tokens[pos].type == "DELIM" and tokens[pos].value == delimiters[","] then
+            elseif tokens[currentPosition] and tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[","] then
                 nextToken()
-                local var2 = expect("IDENT").value
+                local varName2 = expect("IDENT").value
                 local _, err = expect("KEYWORD", "in")
-                if err then
-                    return nil, err
-                end
-                local iter, err = parseExpression(level)
-                if err then
-                    return nil, err
-                end
+                if err then return nil, err end
+                local iterExpr, err = parseExpression(nestingLevel)
+                if err then return nil, err end
                 local _, err = expect("KEYWORD", "do")
-                if err then
-                    return nil, err
-                end
-                local body, err = parseBlock(level)
-                if err then
-                    return nil, err
-                end
-                local _, err = expect("KEYWORD", "end")
-                if err then
-                    return nil, err
-                end
-                local node = {
+                if err then return nil, err end
+                local bodyBlock, err = parseBlock(nestingLevel)
+                if err then return nil, err end
+                local _, err2 = expect("KEYWORD", "end")
+                if err2 then return nil, err2 end
+                return {
                     type = "ForGenericStatement",
-                    vars = {var, var2},
-                    iter = iter,
-                    body = body
+                    vars = { varName, varName2 },
+                    iter = iterExpr,
+                    body = bodyBlock
                 }
-                return node
             else
-                return nil, {
-                    type = "unexpected",
-                    got = tokens[pos],
-                    line = tokens[pos].line,
-                    from = "for in parseStatement"
-                }
+                return nil, { type = "unexpected", got = tokens[currentPosition], line = tokens[currentPosition].line, from = "for in parseStatement" }
             end
 
-        elseif token.type == "KEYWORD" and (token.value == keywords["local"]) then
+        elseif token.type == "KEYWORD" and token.value == keywords["local"] then
             nextToken()
-            local vars = {}
+            local varNames = {}
             repeat
-                local name, err = expect("IDENT")
-                if err then
-                    return nil, err
-                end
-                table.insert(vars, name.value)
-                if tokens[pos] and tokens[pos].type == "DELIM" and tokens[pos].value == delimiters[","] then
+                local nameToken, err = expect("IDENT")
+                if err then return nil, err end
+                table.insert(varNames, nameToken.value)
+                if tokens[currentPosition] and tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[","] then
                     nextToken()
                 else
                     break
                 end
             until false
 
-            local inits = {}
-            if tokens[pos] and tokens[pos].type == "SPECIAL" and tokens[pos].value == specials["="] then
+            local initExpressions = {}
+            if tokens[currentPosition] and tokens[currentPosition].type == "SPECIAL" and tokens[currentPosition].value == specials["="] then
                 nextToken()
                 repeat
-                    local init, err = parseExpression(level)
-                    if err then
-                        return nil, err
-                    end
-                    table.insert(inits, init)
-                    if tokens[pos] and tokens[pos].type == "DELIM" and tokens[pos].value == delimiters[","] then
+                    local initExpr, err = parseExpression(nestingLevel)
+                    if err then return nil, err end
+                    table.insert(initExpressions, initExpr)
+                    if tokens[currentPosition] and tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[","] then
                         nextToken()
                     else
                         break
@@ -950,72 +820,50 @@ local function parse(tokens)
                 until false
             end
 
-            local node = {
+            return {
                 type = "LocalDeclaration",
-                names = vars,
-                inits = inits
+                names = varNames,
+                inits = initExpressions
             }
-            return node
-        elseif token.type == "KEYWORD" and (token.value == keywords["ritual"]) then
+
+        elseif token.type == "KEYWORD" and token.value == keywords["ritual"] then
             nextToken()
             local isLocal = false
-            if tokens[pos].type == "KEYWORD" and tokens[pos].value == keywords["local"] then
+            if tokens[currentPosition].type == "KEYWORD" and tokens[currentPosition].value == keywords["local"] then
                 isLocal = true
                 nextToken()
             end
-            local name = tokens[pos].value
+            local nameToken = tokens[currentPosition]
             local _, err = expect("IDENT")
-            if err then
-                return nil, err
-            end
+            if err then return nil, err end
 
-            local nameNode = {
-                name = name,
-                type = "Identifier"
-            }
-
+            local nameNode = { type = "Identifier", name = nameToken.value }
             local isMethod = false
 
-            -- Handle nested table access with brackets and dots
-            while tokens[pos] and tokens[pos].type == "DELIM" and
-                (tokens[pos].value == delimiters["["] or tokens[pos].value == delimiters["."] or tokens[pos].value ==
-                    delimiters[":"]) do
-                if tokens[pos].value == delimiters["["] then
+            while tokens[currentPosition] and tokens[currentPosition].type == "DELIM" and
+                  (tokens[currentPosition].value == delimiters["["] or tokens[currentPosition].value == delimiters["."] or tokens[currentPosition].value == delimiters[":"]) do
+                if tokens[currentPosition].value == delimiters["["] then
                     nextToken()
-                    local index, err = parseExpression(level)
-                    if err then
-                        return nil, err
-                    end
+                    local indexExpr, err = parseExpression(nestingLevel)
+                    if err then return nil, err end
                     local _, err = expect("DELIM", "]")
-                    if err then
-                        return nil, err
-                    end
-                    nameNode = {
-                        type = "TableAccess",
-                        table = nameNode,
-                        index = index
-                    }
-                elseif tokens[pos].value == delimiters["."] then
+                    if err then return nil, err end
+                    nameNode = { type = "TableAccess", table = nameNode, index = indexExpr }
+                elseif tokens[currentPosition].value == delimiters["."] then
                     nextToken()
-                    local index = expect("IDENT").value
+                    local indexToken = expect("IDENT")
                     nameNode = {
                         type = "TableAccess",
                         table = nameNode,
-                        index = {
-                            type = "StringLiteral",
-                            value = index
-                        }
+                        index = { type = "StringLiteral", value = indexToken.value }
                     }
                 else
                     nextToken()
-                    local index = expect("IDENT").value
+                    local indexToken = expect("IDENT")
                     nameNode = {
                         type = "TableAccess",
                         table = nameNode,
-                        index = {
-                            type = "StringLiteral",
-                            value = index
-                        }
+                        index = { type = "StringLiteral", value = indexToken.value }
                     }
                     isMethod = true
                     break
@@ -1023,205 +871,156 @@ local function parse(tokens)
             end
 
             local parameters = {}
-            if tokens[pos].type == "DELIM" and tokens[pos].value == delimiters["!"] then
+            if tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters["!"] then
                 local _, err = expect("DELIM", "!")
-                if err then
-                    return nil, err
-                end
+                if err then return nil, err end
             else
                 local _, err = expect("DELIM", "(")
-                if err then
-                    return nil, err
-                end
-                if tokens[pos] and tokens[pos].type ~= "DELIM" and tokens[pos].value ~= delimiters[")"] then
+                if err then return nil, err end
+                if tokens[currentPosition] and not (tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[")"]) then
                     repeat
-                        local param, err = expect("IDENT")
-                        if err then
-                            return nil, err
-                        end
-                        table.insert(parameters, param.value)
-                        if tokens[pos].type == "DELIM" and tokens[pos].value == delimiters[","] then
+                        local paramToken, err = expect("IDENT")
+                        if err then return nil, err end
+                        table.insert(parameters, paramToken.value)
+                        if tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[","] then
                             nextToken()
                         end
-                    until tokens[pos].type == "DELIM" and tokens[pos].value == delimiters[")"]
+                    until tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[")"]
                 end
                 local _, err = expect("DELIM", ")")
-                if err then
-                    return nil, err
-                end
+                if err then return nil, err end
             end
 
-            local body, err = parseBlock(level)
-            if err then
-                return nil, err
-            end
-            local _, err = expect("KEYWORD", "end")
-            if err then
-                return nil, err
-            end
+            local bodyBlock, err = parseBlock(nestingLevel)
+            if err then return nil, err end
+            local _, err2 = expect("KEYWORD", "end")
+            if err2 then return nil, err2 end
 
-            local node = {
+            return {
                 type = "FunctionDeclaration",
                 name = nameNode,
                 parameters = parameters,
-                body = body,
+                body = bodyBlock,
                 isLocal = isLocal,
                 isMethod = isMethod
             }
-            return node
 
         elseif token.type == "IDENT" then
-            -- Handle identifiers, including function calls and table access
-            local identifiers = {}
+            local identifierNodes = {}
             repeat
-                local node = {
-                    type = "Identifier",
-                    name = token.value
-                }
+                local node = { type = "Identifier", name = token.value }
                 nextToken()
 
-                -- Handle nested table access with brackets and dots
-                while tokens[pos] and tokens[pos].type == "DELIM" and
-                    (tokens[pos].value == delimiters["["] or tokens[pos].value == delimiters["."]) do
-                    if tokens[pos].value == delimiters["["] then
+                while tokens[currentPosition] and tokens[currentPosition].type == "DELIM" and
+                      (tokens[currentPosition].value == delimiters["["] or tokens[currentPosition].value == delimiters["."]) do
+                    if tokens[currentPosition].value == delimiters["["] then
                         nextToken()
-                        local index, err = parseExpression(level)
-                        if err then
-                            return nil, err
-                        end
+                        local indexExpr, err = parseExpression(nestingLevel)
+                        if err then return nil, err end
                         local _, err = expect("DELIM", "]")
-                        if err then
-                            return nil, err
-                        end
-                        node = {
-                            type = "TableAccess",
-                            table = node,
-                            index = index
-                        }
-                    elseif tokens[pos].value == delimiters["."] then
+                        if err then return nil, err end
+                        node = { type = "TableAccess", table = node, index = indexExpr }
+                    elseif tokens[currentPosition].value == delimiters["."] then
                         nextToken()
-                        local index = expect("IDENT").value
+                        local indexToken = expect("IDENT")
                         node = {
                             type = "TableAccess",
                             table = node,
-                            index = {
-                                type = "StringLiteral",
-                                value = index
-                            }
+                            index = { type = "StringLiteral", value = indexToken.value }
                         }
                     end
                 end
 
-                table.insert(identifiers, node)
-                token = tokens[pos]
+                table.insert(identifierNodes, node)
+                token = tokens[currentPosition]
                 if token and token.type == "DELIM" and token.value == delimiters[","] then
                     nextToken()
-                    token = tokens[pos]
+                    token = tokens[currentPosition]
                 else
                     break
                 end
             until false
 
-            -- Check if the next token is '=' for assignment
             if token and token.type == "SPECIAL" and token.value == specials["="] then
                 nextToken()
-                local initValues = {}
+                local initExpressions = {}
                 repeat
-                    local init, err = parseExpression(level)
-                    if err then
-                        return nil, err
-                    end
-                    table.insert(initValues, init)
-                    token = tokens[pos]
+                    local initExpr, err = parseExpression(nestingLevel)
+                    if err then return nil, err end
+                    table.insert(initExpressions, initExpr)
+                    token = tokens[currentPosition]
                     if token and token.type == "DELIM" and token.value == delimiters[","] then
                         nextToken()
-                        token = tokens[pos]
+                        token = tokens[currentPosition]
                     else
                         break
                     end
                 until false
 
-                local assignmentNode = {
+                return {
                     type = "VariableAssignation",
-                    names = identifiers,
-                    inits = initValues
+                    names = identifierNodes,
+                    inits = initExpressions
                 }
-                return assignmentNode
-            elseif tokens[pos] and tokens[pos].type == "DELIM" and
-                (tokens[pos].value == delimiters["("] or tokens[pos].value == delimiters[":"] or tokens[pos].value ==
-                    delimiters["!"]) then
-                -- Handle function calls
-                return parseFunctionCall(identifiers[1], level)
+            elseif tokens[currentPosition] and tokens[currentPosition].type == "DELIM" and
+                   (tokens[currentPosition].value == delimiters["("] or tokens[currentPosition].value == delimiters[":"] or tokens[currentPosition].value == delimiters["!"]) then
+                return parseFunctionCall(identifierNodes[1], nestingLevel)
             else
-                return nil, {
-                    type = "unexpected",
-                    got = tokens[pos],
-                    line = tokens[pos].line,
-                    from = "ident in parseStatement"
-                }
+                return nil, { type = "unexpected", got = tokens[currentPosition], line = tokens[currentPosition].line, from = "ident in parseStatement" }
             end
+
         elseif token.type == "KEYWORD" and token.value == keywords["reply"] then
-            local expres = {}
+            local expressions = {}
             nextToken()
-            local expr, err = parseExpression(level)
-            if err then
-                return nil, err
-            end
-            table.insert(expres, expr)
-            while tokens[pos].type == "DELIM" and tokens[pos].value == delimiters[","] do
+            local expr, err = parseExpression(nestingLevel)
+            if err then return nil, err end
+            table.insert(expressions, expr)
+            while tokens[currentPosition].type == "DELIM" and tokens[currentPosition].value == delimiters[","] do
                 nextToken()
-                local expr, err = parseExpression(level)
-                if err then
-                    return nil, err
-                end
-                table.insert(expres, expr)
+                local expr, err = parseExpression(nestingLevel)
+                if err then return nil, err end
+                table.insert(expressions, expr)
             end
-            local node = {
+            return {
                 type = "ReplyStatement",
-                values = expres
+                values = expressions
             }
-            return node
         else
-            table.print(keywords)
-            return nil, {
-                type = "unexpected",
-                got = token,
-                line = token.line,
-                from = "base parseStatement"
-            }
+            print("Unexpected token in parseStatement; current keywords:", keywords)
+            return nil, { type = "unexpected", got = token, line = token.line, from = "base parseStatement" }
         end
     end
 
-    parseBlock = function(level)
-        level = level or -1
-        level = level + 1
-        local body = {}
-        local s, b, e = pcall(function()
-            while pos <= length and not (tokens[pos].type == "KEYWORD" and
-                (tokens[pos].value == keywords["end"] or tokens[pos].value == keywords["else"] or tokens[pos].value ==
-                    keywords["elseif"])) do
-                local statement, err = parseStatement(level)
+    -----------------------------
+    -- Block Parser (multiple statements)
+    -----------------------------
+    parseBlock = function(nestingLevel)
+        nestingLevel = (nestingLevel or -1) + 1
+        local statements = {}
+        local success, err = pcall(function()
+            while currentPosition <= tokensLength and not (tokens[currentPosition].type == "KEYWORD" and
+                  (tokens[currentPosition].value == keywords["end"] or tokens[currentPosition].value == keywords["else"] or tokens[currentPosition].value == keywords["elseif"])) do
+                local statement, err = parseStatement(nestingLevel)
                 if err then
-                    return body, err
+                    return statements, err
                 end
-                table.insert(body, statement)
+                table.insert(statements, statement)
             end
-
         end)
-        local node = {
-            type = "BlockStatement",
-            body = body
-        }
-        if e then
-            return b, e
+        local blockNode = { type = "BlockStatement", body = statements }
+        if err then
+            return statements, err
         else
-            return node, s and nil or b
+            return blockNode, success and nil or err
         end
     end
 
     return parseBlock()
 end
 
+-------------------------------------------------
+-- Main entry point: Tokenize and parse input code
+-------------------------------------------------
 return function(code)
     params = params or {}
     local tokens = tokenize(code)
